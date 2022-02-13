@@ -98,7 +98,7 @@ fn split_input(split_mode: SplitMode, header: Header, bit_depth: BitDepth) -> (H
 fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> io::Result<()> {
     let slug = path.file_stem()
         .and_then(|p| p.to_str())
-        .ok_or(io::Error::from(io::ErrorKind::InvalidInput))?;
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     for (i, buffer) in buffers.iter().enumerate() {
         let mut out_file = File::create(path.with_file_name(format!("{}_{}.wav", slug, i)))?;
         wav::write(header, buffer, &mut out_file)?;
