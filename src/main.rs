@@ -1,7 +1,6 @@
 use clap::Parser;
 use std::fs::File;
 use std::io;
-use std::error::Error;
 use std::path::Path;
 use wav::{BitDepth, Header};
 
@@ -117,7 +116,7 @@ fn main() {
                     let (header, buffers) = split_input(split_mode, header, bit_depth);
                     match write_buffers(input_path, header, buffers) {
                         Ok(()) => println!("Written successfully."),
-                        Err(e) => eprintln!("ERR: {}", e.description())
+                        Err(e) => eprintln!("ERR: {}", e)
                     }
                 }
                 None => eprintln!("Error reading or parsing file.")
