@@ -5,8 +5,8 @@ use std::path::Path;
 use wav::{BitDepth, Header};
 
 enum SplitMode {
-    // split into segments equal to one bar of this tempo
-    Tempo(usize),
+    // split into segments equal to one [Y]th note at X BPM
+    Tempo(usize, usize),
     // split into N equally sized segments
     Beats(usize)
 }
@@ -31,9 +31,15 @@ struct Command {
     /// Path of file for the loop to slice up
     #[clap(short, long)]
     input: String,
+    /// Path to output files to
+    #[clap(short, long)]
+    output: Option<String>,
     /// Tempo of loop, in BPM
     #[clap(short, long)]
     tempo: Option<usize>,
+    /// Note value for tempo mode. 4 = quarter note, 8 = eighth note, etc. Default is 4.
+    #[clap(short, long)]
+    note_value: Option<usize>,
     /// Number of segments of equal size to split the loop into
     #[clap(short, long)]
     beats: Option<usize>
@@ -46,10 +52,16 @@ impl Command {
         } else if let Some(beats) = self.beats {
             Ok(SplitMode::Beats(beats))
         } else if let Some(tempo) = self.tempo {
-            Ok(SplitMode::Tempo(tempo))
+            Ok(SplitMode::Tempo(tempo, self.note_value.unwrap_or(4)))
         } else {
             Err(SplitErr::Neither)
         }
+    }
+
+    pub fn output_path(&self) -> &Path {
+        self.output.as_ref()
+            .map(|s| Path::new(s))
+            .unwrap_or_else(|| Path::new(&self.input))
     }
 }
 
@@ -62,8 +74,8 @@ fn read_input(input_path: &Path) -> Option<(Header, BitDepth)> {
 
 fn split<T: Copy>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
     match split_mode {
-        SplitMode::Tempo(bpm) => {
-            let segment_len = header.sampling_rate as usize * bpm / 60;
+        SplitMode::Tempo(bpm, note) => {
+            let segment_len = (header.sampling_rate as usize * bpm * 4) / (60 * note);
             arr.chunks(segment_len)
             .map(|a| a.to_owned().into())
             .collect()
@@ -100,7 +112,7 @@ fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> io::Res
         .and_then(|p| p.to_str())
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     for (i, buffer) in buffers.iter().enumerate() {
-        let mut out_file = File::create(path.with_file_name(format!("{}_{}.wav", slug, i)))?;
+        let mut out_file = File::create(path.with_file_name(format!("{}_{:0>2}.wav", slug, i)))?;
         wav::write(header, buffer, &mut out_file)?;
     }
     Ok(())
@@ -114,7 +126,7 @@ fn main() {
             match read_input(input_path) {
                 Some((header, bit_depth)) => {
                     let (header, buffers) = split_input(split_mode, header, bit_depth);
-                    match write_buffers(input_path, header, buffers) {
+                    match write_buffers(command.output_path(), header, buffers) {
                         Ok(()) => println!("Written successfully."),
                         Err(e) => eprintln!("ERR: {}", e)
                     }
