@@ -37,7 +37,7 @@ struct Command {
     /// Path of file for the loop to slice up
     #[clap(short, long)]
     input: String,
-    /// Path to output files to
+    /// Path to output files to; given file.wav, it will output file_00.wav, file_01.wav, etc (defaults to input path)
     #[clap(short, long)]
     output: Option<String>,
     #[clap(subcommand)]
