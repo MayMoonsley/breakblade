@@ -1,32 +1,38 @@
-use clap::Parser;
+use clap::{Args, Parser, Subcommand};
 use std::fs::File;
 use std::io;
 use std::path::Path;
 use wav::{BitDepth, Header};
 
+#[derive(Subcommand, Copy, Clone)]
 enum SplitMode {
     // split into segments equal to one [Y]th note at X BPM
-    Tempo(usize, usize),
+    Tempo(Tempo),
     // split into N equally sized segments
-    Beats(usize)
+    Beats(Beats)
 }
 
-enum SplitErr {
-    Both,
-    Neither
+/// Split the loop based on its tempo
+#[derive(Args, Copy, Clone)]
+struct Tempo {
+    /// Tempo of loop, in BPM
+    #[clap(short, long)]
+    tempo: usize,
+    /// Note value (4 = quarter note, 8 = eighth note, etc)
+    #[clap(short, long, default_value_t = 4)]
+    note_value: usize,
 }
 
-impl SplitErr {
-    pub fn err_string(&self) -> &'static str {
-        match self {
-            SplitErr::Both => "Cannot specify both tempo and beats.",
-            SplitErr::Neither => "Must specify either tempo or beats."
-        }
-    }
+/// Split the loop into beats of equal size
+#[derive(Args, Copy, Clone)]
+struct Beats {
+    /// Number of segments of equal size to split the loop into
+    #[clap(short, long)]
+    beats: usize
 }
 
 #[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
+#[clap(author = "May Lawver", version, about = "A tool for musically useful sample splitting.", long_about = None)]
 struct Command {
     /// Path of file for the loop to slice up
     #[clap(short, long)]
@@ -34,30 +40,11 @@ struct Command {
     /// Path to output files to
     #[clap(short, long)]
     output: Option<String>,
-    /// Tempo of loop, in BPM
-    #[clap(short, long)]
-    tempo: Option<usize>,
-    /// Note value for tempo mode. 4 = quarter note, 8 = eighth note, etc. Default is 4.
-    #[clap(short, long)]
-    note_value: Option<usize>,
-    /// Number of segments of equal size to split the loop into
-    #[clap(short, long)]
-    beats: Option<usize>
+    #[clap(subcommand)]
+    mode: SplitMode,
 }
 
 impl Command {
-    pub fn split_mode(&self) -> Result<SplitMode, SplitErr> {
-        if let (Some(_), Some(_)) = (self.beats, self.tempo) {
-            Err(SplitErr::Both)
-        } else if let Some(beats) = self.beats {
-            Ok(SplitMode::Beats(beats))
-        } else if let Some(tempo) = self.tempo {
-            Ok(SplitMode::Tempo(tempo, self.note_value.unwrap_or(4)))
-        } else {
-            Err(SplitErr::Neither)
-        }
-    }
-
     pub fn output_path(&self) -> &Path {
         self.output.as_ref()
             .map(|s| Path::new(s))
@@ -74,13 +61,13 @@ fn read_input(input_path: &Path) -> Option<(Header, BitDepth)> {
 
 fn split<T: Copy>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
     match split_mode {
-        SplitMode::Tempo(bpm, note) => {
-            let segment_len = (header.sampling_rate as usize * bpm * 4) / (60 * note);
+        SplitMode::Tempo(Tempo { tempo, note_value }) => {
+            let segment_len = (header.sampling_rate as usize * tempo * 4) / (60 * note_value);
             arr.chunks(segment_len)
             .map(|a| a.to_owned().into())
             .collect()
         }
-        SplitMode::Beats(beats) => {
+        SplitMode::Beats(Beats { beats }) => {
             let beat_len = arr.len() / beats;
             (0..beats)
                 .map(|index| {
@@ -121,21 +108,14 @@ fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> io::Res
 fn main() {
     let command = Command::parse();
     let input_path = Path::new(&command.input);
-    match command.split_mode() {
-        Ok(split_mode) => {
-            match read_input(input_path) {
-                Some((header, bit_depth)) => {
-                    let (header, buffers) = split_input(split_mode, header, bit_depth);
-                    match write_buffers(command.output_path(), header, buffers) {
-                        Ok(()) => println!("Written successfully."),
-                        Err(e) => eprintln!("ERR: {}", e)
-                    }
-                }
-                None => eprintln!("Error reading or parsing file.")
+    match read_input(input_path) {
+        Some((header, bit_depth)) => {
+            let (header, buffers) = split_input(command.mode, header, bit_depth);
+            match write_buffers(command.output_path(), header, buffers) {
+                Ok(()) => println!("Written successfully."),
+                Err(e) => eprintln!("ERR: {}", e)
             }
-        },
-        Err(err) => {
-            eprintln!("ERR: {}", err.err_string());
         }
+        None => eprintln!("Error reading or parsing file.")
     }
 }
