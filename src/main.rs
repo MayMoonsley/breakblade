@@ -77,7 +77,7 @@ fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) 
     match split_mode {
         SplitMode::Tempo(Tempo { tempo, note_value, trim_leading_silence, trim_trailing_silence, silence_threshold }) => {
             println!("{} {}", trim_leading_silence, trim_trailing_silence);
-            let segment_len = (header.sampling_rate as usize * tempo * 4) / (60 * note_value);
+            let segment_len = (header.sampling_rate as usize * 240) / (tempo * note_value);
             arr.skip_while(|&x| trim_leading_silence && x.to_dbfs() <= silence_threshold) // remove leading silence
                 .skip_from_right_while(|&x| trim_trailing_silence && x.to_dbfs() <= silence_threshold) // remove trailing silence
                 .chunks(segment_len) // split based on tempo
