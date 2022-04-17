@@ -7,6 +7,7 @@ use wav::{BitDepth, Header};
 mod threshold;
 use threshold::Threshold;
 mod slice_util;
+use slice_util::{SkipWhile, SkipFromRightWhile};
 
 #[derive(Subcommand, Copy, Clone)]
 enum SplitMode {
@@ -28,8 +29,11 @@ struct Tempo {
     /// Remove silence from the beginning of the input
     #[clap(long)]
     trim_leading_silence: bool,
+    /// Remove silence from the end of the input (this can remove transients / decays, so be careful)
+    #[clap(long)]
+    trim_trailing_silence: bool,
     /// Threshold for what is considered to be silence, in dBFS
-    #[clap(long, default_value_t = -70.0)]
+    #[clap(long, default_value_t = -40.0)]
     silence_threshold: f64
 }
 
@@ -71,12 +75,14 @@ fn read_input(input_path: &Path) -> Option<(Header, BitDepth)> {
 
 fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
     match split_mode {
-        SplitMode::Tempo(Tempo { tempo, note_value, trim_leading_silence, silence_threshold }) => {
+        SplitMode::Tempo(Tempo { tempo, note_value, trim_leading_silence, trim_trailing_silence, silence_threshold }) => {
+            println!("{} {}", trim_leading_silence, trim_trailing_silence);
             let segment_len = (header.sampling_rate as usize * tempo * 4) / (60 * note_value);
-            slice_util::skip_while(arr, |&x| trim_leading_silence && x.to_dbfs() <= silence_threshold)
-                .chunks(segment_len)
-                .map(|a| a.to_owned().into())
-                .collect()
+            arr.skip_while(|&x| trim_leading_silence && x.to_dbfs() <= silence_threshold) // remove leading silence
+                .skip_from_right_while(|&x| trim_trailing_silence && x.to_dbfs() <= silence_threshold) // remove trailing silence
+                .chunks(segment_len) // split based on tempo
+                .map(|a| a.to_owned().into()) // convert each buffer to a vec
+                .collect() // convert to a vec
         }
         SplitMode::Beats(Beats { beats }) => {
             let beat_len = arr.len() / beats;
