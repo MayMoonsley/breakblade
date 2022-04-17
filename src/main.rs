@@ -4,6 +4,10 @@ use std::io;
 use std::path::Path;
 use wav::{BitDepth, Header};
 
+mod threshold;
+use threshold::Threshold;
+mod slice_util;
+
 #[derive(Subcommand, Copy, Clone)]
 enum SplitMode {
     // split into segments equal to one [Y]th note at X BPM
@@ -21,6 +25,12 @@ struct Tempo {
     /// Note value (4 = quarter note, 8 = eighth note, etc)
     #[clap(short, long, default_value_t = 4)]
     note_value: usize,
+    /// Remove silence from the beginning of the input
+    #[clap(long)]
+    trim_leading_silence: bool,
+    /// Threshold for what is considered to be silence, in dBFS
+    #[clap(long, default_value_t = -70.0)]
+    silence_threshold: f64
 }
 
 /// Split the loop into beats of equal size
@@ -59,13 +69,14 @@ fn read_input(input_path: &Path) -> Option<(Header, BitDepth)> {
     Some(parsed)
 }
 
-fn split<T: Copy>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
+fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
     match split_mode {
-        SplitMode::Tempo(Tempo { tempo, note_value }) => {
+        SplitMode::Tempo(Tempo { tempo, note_value, trim_leading_silence, silence_threshold }) => {
             let segment_len = (header.sampling_rate as usize * tempo * 4) / (60 * note_value);
-            arr.chunks(segment_len)
-            .map(|a| a.to_owned().into())
-            .collect()
+            slice_util::skip_while(arr, |&x| trim_leading_silence && x.to_dbfs() <= silence_threshold)
+                .chunks(segment_len)
+                .map(|a| a.to_owned().into())
+                .collect()
         }
         SplitMode::Beats(Beats { beats }) => {
             let beat_len = arr.len() / beats;
