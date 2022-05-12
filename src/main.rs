@@ -9,7 +9,7 @@ use threshold::Threshold;
 mod slice_util;
 use slice_util::{SkipWhile, SkipFromRightWhile};
 
-#[derive(Subcommand, Copy, Clone)]
+#[derive(Subcommand, Clone)]
 enum SplitMode {
     // split into segments equal to one [Y]th note at X BPM
     Tempo(Tempo),
@@ -18,8 +18,14 @@ enum SplitMode {
 }
 
 /// Split the loop based on its tempo
-#[derive(Args, Copy, Clone)]
+#[derive(Args, Clone)]
 struct Tempo {
+    /// Path of file for the loop to slice up
+    #[clap(short, long)]
+    input: String,
+    /// Path to output files to; given file.wav, it will output file_00.wav, file_01.wav, etc (defaults to input path)
+    #[clap(short, long)]
+    output: Option<String>,
     /// Tempo of loop, in BPM
     #[clap(short, long)]
     tempo: usize,
@@ -38,8 +44,14 @@ struct Tempo {
 }
 
 /// Split the loop into beats of equal size
-#[derive(Args, Copy, Clone)]
+#[derive(Args, Clone)]
 struct Beats {
+    /// Path of file for the loop to slice up
+    #[clap(short, long)]
+    input: String,
+    /// Path to output files to; given file.wav, it will output file_00.wav, file_01.wav, etc (defaults to input path)
+    #[clap(short, long)]
+    output: Option<String>,
     /// Number of segments of equal size to split the loop into
     #[clap(short, long)]
     beats: usize
@@ -48,35 +60,43 @@ struct Beats {
 #[derive(Parser)]
 #[clap(author = "May Lawver", version, about = "A tool for musically useful sample splitting.", long_about = None)]
 struct Command {
-    /// Path of file for the loop to slice up
-    #[clap(short, long)]
-    input: String,
-    /// Path to output files to; given file.wav, it will output file_00.wav, file_01.wav, etc (defaults to input path)
-    #[clap(short, long)]
-    output: Option<String>,
     #[clap(subcommand)]
     mode: SplitMode,
 }
 
 impl Command {
+    pub fn input<'a>(&'a self) -> &'a str {
+        match &self.mode {
+            SplitMode::Beats(beats) => &beats.input,
+            SplitMode::Tempo(tempo) => &tempo.input
+        }
+    }
+
+    pub fn output<'a>(&'a self) -> Option<&'a str> {
+        match &self.mode {
+            SplitMode::Beats(beats) => beats.output.as_deref(),
+            SplitMode::Tempo(tempo) => tempo.output.as_deref()
+        }
+    }
+
     pub fn output_path(&self) -> &Path {
-        self.output.as_ref()
+        self.output()
             .map(|s| Path::new(s))
-            .unwrap_or_else(|| Path::new(&self.input))
+            .unwrap_or_else(|| Path::new(self.input()))
     }
 }
 
 // todo: this should return a Result
-fn read_input(input_path: &Path) -> Option<(Header, BitDepth)> {
+fn read_input<'a>(input_path: &'a Path) -> Option<(Header, BitDepth)> {
     let mut file = File::open(input_path).ok()?;
     let parsed = wav::read(&mut file).ok()?;
     Some(parsed)
 }
 
-fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
+fn split<T: Copy + Threshold>(split_mode: &SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
     match split_mode {
-        SplitMode::Tempo(Tempo { tempo, note_value, trim_leading_silence, trim_trailing_silence, silence_threshold }) => {
-            println!("{} {}", trim_leading_silence, trim_trailing_silence);
+        SplitMode::Tempo(args) => {
+            let &Tempo { tempo, note_value, trim_leading_silence, trim_trailing_silence, silence_threshold, .. } = args;
             let segment_len = (header.sampling_rate as usize * 240) / (tempo * note_value);
             arr.skip_while(|&x| trim_leading_silence && x.to_dbfs() <= silence_threshold) // remove leading silence
                 .skip_from_right_while(|&x| trim_trailing_silence && x.to_dbfs() <= silence_threshold) // remove trailing silence
@@ -84,7 +104,8 @@ fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) 
                 .map(|a| a.to_owned().into()) // convert each buffer to a vec
                 .collect() // convert to a vec
         }
-        SplitMode::Beats(Beats { beats }) => {
+        SplitMode::Beats(args) => {
+            let &Beats { beats, .. } = args;
             let beat_len = arr.len() / beats;
             (0..beats)
                 .map(|index| {
@@ -101,7 +122,7 @@ fn split<T: Copy + Threshold>(split_mode: SplitMode, header: Header, arr: &[T]) 
     }
 }
 
-fn split_input(split_mode: SplitMode, header: Header, bit_depth: BitDepth) -> (Header, Vec<BitDepth>) {
+fn split_input(split_mode: &SplitMode, header: Header, bit_depth: BitDepth) -> (Header, Vec<BitDepth>) {
     match bit_depth {
         BitDepth::Eight(arr) => (header, split(split_mode, header, &arr)),
         BitDepth::Sixteen(arr) => (header, split(split_mode, header, &arr)),
@@ -124,10 +145,10 @@ fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> io::Res
 
 fn main() {
     let command = Command::parse();
-    let input_path = Path::new(&command.input);
+    let input_path = Path::new(command.input().clone());
     match read_input(input_path) {
         Some((header, bit_depth)) => {
-            let (header, buffers) = split_input(command.mode, header, bit_depth);
+            let (header, buffers) = split_input(&command.mode, header, bit_depth);
             match write_buffers(command.output_path(), header, buffers) {
                 Ok(()) => println!("Written successfully."),
                 Err(e) => eprintln!("ERR: {}", e)
