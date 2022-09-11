@@ -7,14 +7,16 @@ use wav::{BitDepth, Header};
 mod threshold;
 use threshold::Threshold;
 mod slice_util;
-use slice_util::{SkipWhile, SkipFromRightWhile};
+use slice_util::{SkipPredicate, SkipWhile, SkipFromRightWhile};
 
 #[derive(Subcommand, Clone)]
 enum SplitMode {
     // split into segments equal to one [Y]th note at X BPM
     Tempo(Tempo),
     // split into N equally sized segments
-    Beats(Beats)
+    Beats(Beats),
+    // split on silence
+    Silence(Silence)
 }
 
 /// Split the loop based on its tempo
@@ -57,6 +59,26 @@ struct Beats {
     beats: usize
 }
 
+/// Split on portions of extended silence
+#[derive(Args, Clone)]
+struct Silence {
+    /// Path of file for the loop to slice up
+    #[clap(short, long)]
+    input: String,
+    /// Path to output files to; given file.wav, it will output file_00.wav, file_01.wav, etc (defaults to input path)
+    #[clap(short, long)]
+    output: Option<String>,
+    /// Threshold for what is considered to be silence, in dBFS
+    #[clap(short, long, default_value_t = -30.0)]
+    silence_threshold: f64,
+    /// Amount of audio below threshold to include before start of detected sound, in ms
+    #[clap(long, default_value_t = 1)]
+    attack: usize,
+    /// Amount of time before silence is cut out, in ms
+    #[clap(long, default_value_t = 750)]
+    release: usize,
+}
+
 #[derive(Parser)]
 #[clap(author = "May Lawver", version, about = "A tool for musically useful sample splitting.", long_about = None)]
 struct Command {
@@ -68,14 +90,16 @@ impl Command {
     pub fn input<'a>(&'a self) -> &'a str {
         match &self.mode {
             SplitMode::Beats(beats) => &beats.input,
-            SplitMode::Tempo(tempo) => &tempo.input
+            SplitMode::Tempo(tempo) => &tempo.input,
+            SplitMode::Silence(silence) => &silence.input
         }
     }
 
     pub fn output<'a>(&'a self) -> Option<&'a str> {
         match &self.mode {
             SplitMode::Beats(beats) => beats.output.as_deref(),
-            SplitMode::Tempo(tempo) => tempo.output.as_deref()
+            SplitMode::Tempo(tempo) => tempo.output.as_deref(),
+            SplitMode::Silence(silence) => silence.output.as_deref()
         }
     }
 
@@ -117,7 +141,16 @@ fn split<T: Copy + Threshold>(split_mode: &SplitMode, header: Header, arr: &[T])
                     }
                 })
                 .collect()
-
+        }
+        SplitMode::Silence(args) => {
+            let &Silence { silence_threshold, attack, release, .. } = args;
+            let attack_len = header.sampling_rate as usize * attack / 1000;
+            let release_len = header.sampling_rate as usize * release / 1000;
+            // TODO: make hold amount not a magic number
+            arr.skip_predicate_with_delay(|&x| x.to_dbfs() <= silence_threshold, attack_len, 16, release_len)
+                .into_iter()
+                .map(|x| x.to_owned().into())
+                .collect()
         }
     }
 }
