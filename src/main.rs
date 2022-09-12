@@ -1,3 +1,4 @@
+use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use std::fs::File;
 use std::io;
@@ -111,10 +112,10 @@ impl Command {
 }
 
 // todo: this should return a Result
-fn read_input<'a>(input_path: &'a Path) -> Option<(Header, BitDepth)> {
-    let mut file = File::open(input_path).ok()?;
-    let parsed = wav::read(&mut file).ok()?;
-    Some(parsed)
+fn read_input<'a>(input_path: &'a Path) -> Result<(Header, BitDepth)> {
+    let mut file = File::open(input_path)?;
+    let parsed = wav::read(&mut file)?;
+    Ok(parsed)
 }
 
 fn split<T: Copy + Threshold>(split_mode: &SplitMode, header: Header, arr: &[T]) -> Vec<BitDepth> where Vec<T>: Into<BitDepth> {
@@ -165,7 +166,7 @@ fn split_input(split_mode: &SplitMode, header: Header, bit_depth: BitDepth) -> (
     }
 }
 
-fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> io::Result<()> {
+fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> Result<()> {
     let slug = path.file_stem()
         .and_then(|p| p.to_str())
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
@@ -180,13 +181,13 @@ fn main() {
     let command = Command::parse();
     let input_path = Path::new(command.input().clone());
     match read_input(input_path) {
-        Some((header, bit_depth)) => {
+        Ok((header, bit_depth)) => {
             let (header, buffers) = split_input(&command.mode, header, bit_depth);
             match write_buffers(command.output_path(), header, buffers) {
                 Ok(()) => println!("Written successfully."),
-                Err(e) => eprintln!("ERR: {}", e)
+                Err(e) => eprintln!("ERR: {e}")
             }
         }
-        None => eprintln!("Error reading or parsing file.")
+        Err(e) => eprintln!("ERR: {e}")
     }
 }
