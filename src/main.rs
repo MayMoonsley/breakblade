@@ -78,6 +78,9 @@ struct Silence {
     /// Amount of time before silence is cut out, in ms
     #[clap(long, default_value_t = 750)]
     release: usize,
+    /// Amount of samples of silence required to begin splitting
+    #[clap(long, default_value_t = 16)]
+    hold: usize
 }
 
 #[derive(Parser)]
@@ -111,7 +114,6 @@ impl Command {
     }
 }
 
-// todo: this should return a Result
 fn read_input<'a>(input_path: &'a Path) -> Result<(Header, BitDepth)> {
     let mut file = File::open(input_path)?;
     let parsed = wav::read(&mut file)?;
@@ -147,8 +149,8 @@ fn split<T: Copy + Threshold>(split_mode: &SplitMode, header: Header, arr: &[T])
             let &Silence { silence_threshold, attack, release, .. } = args;
             let attack_len = header.sampling_rate as usize * attack / 1000;
             let release_len = header.sampling_rate as usize * release / 1000;
-            // TODO: make hold amount not a magic number
-            arr.skip_predicate_with_delay(|&x| x.to_dbfs() <= silence_threshold, attack_len, 16, release_len)
+            let hold = args.hold;
+            arr.skip_predicate_with_delay(|&x| x.to_dbfs() <= silence_threshold, attack_len, hold, release_len)
                 .into_iter()
                 .map(|x| x.to_owned().into())
                 .collect()
