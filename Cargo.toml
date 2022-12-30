@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.64"
 clap = { version = "3.0.14", features = ["derive"] }
+ilog = "0.1.4"
 wav = "1.0.0"

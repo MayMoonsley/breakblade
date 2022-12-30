@@ -37,6 +37,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "ilog",
  "wav",
 ]
 
@@ -90,6 +91,12 @@ checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "ilog"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "797785b5efbe2d29291265ed1eb4b71b52ab4b929e726bd04c4c625f4036e653"
 
 [[package]]
 name = "indexmap"

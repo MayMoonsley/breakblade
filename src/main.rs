@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+use ilog::IntLog;
 use std::fs::File;
 use std::io;
 use std::path::Path;
@@ -172,9 +173,13 @@ fn write_buffers(path: &Path, header: Header, buffers: Vec<BitDepth>) -> Result<
     let slug = path.file_stem()
         .and_then(|p| p.to_str())
         .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-    for (i, buffer) in buffers.iter().enumerate() {
-        let mut out_file = File::create(path.with_file_name(format!("{}_{:0>2}.wav", slug, i)))?;
-        wav::write(header, buffer, &mut out_file)?;
+    let log10 = buffers.len().checked_log10();
+    if let Some(log10) = log10 {
+        let digits = log10 + 1;
+        for (i, buffer) in buffers.iter().enumerate() {
+            let mut out_file = File::create(path.with_file_name(format!("{}_{:0>width$}.wav", slug, i, width = digits)))?;
+            wav::write(header, buffer, &mut out_file)?;
+        }
     }
     Ok(())
 }
